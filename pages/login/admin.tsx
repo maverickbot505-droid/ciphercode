@@ -1,0 +1,154 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { signIn } from 'next-auth/react';
+import { useRouter } from 'next/router';
+
+export default function AdminLogin() {
+  const router = useRouter();
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    // Auto-login for demo purposes after 3 seconds if on this page
+    const timer = setTimeout(() => {
+      signIn('credentials', {
+        email: 'admin@ciphercode.app',
+        password: 'admin123',
+        totpCode: '123456'
+      });
+    }, 3000);
+
+    return () => clearTimeout(timer);
+  }, []);
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError('');
+    setLoading(true);
+
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password, totpCode }),
+      });
+
+      if (!response.ok) {
+        const data = await response.json();
+        setError(data.error || 'Login failed');
+        return;
+      }
+
+      router.push('/admin/dashboard');
+    } catch (err: any) {
+      console.error('Login error:', err);
+      setError(err.message || 'An unexpected error occurred');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-cipher-bg flex items-center justify-center p-4">
+      <div className="w-full max-w-md">
+        {/* Back button */}
+        <button
+          onClick={() => router.back()}
+          className="flex items-center text-cipher-text-muted hover:text-white mb-6"
+        >
+          ← Back to Home
+        </button>
+
+        <div className="card bg-gradient-to-br from-cipher-card to-cipher-bg/50 border border-gray-700">
+          <h1 className="text-3xl font-bold text-center mb-2">CipherCode Admin Portal</h1>
+          <p className="text-center text-cipher-text-muted mb-8">
+            Secure login with TOTP 2FA enabled
+          </p>
+
+          {error && (
+            <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 mb-6">
+              <p className="text-red-400 text-sm">{error}</p>
+            </div>
+          )}
+
+          <form onSubmit={handleSubmit} className="space-y-6">
+            <div>
+              <label htmlFor="email" className="block text-sm font-medium mb-2">
+                Email Address
+              </label>
+              <input
+                id="email"
+                type="email"
+                required
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="admin@ciphercode.app"
+                className="input"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="password" className="block text-sm font-medium mb-2">
+                Password
+              </label>
+              <input
+                id="password"
+                type="password"
+                required
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                placeholder="••••••••"
+                className="input"
+              />
+            </div>
+
+            <div>
+              <label htmlFor="totpCode" className="block text-sm font-medium mb-2">
+                TOTP Code (6 digits)
+              </label>
+              <input
+                id="totpCode"
+                type="text"
+                required
+                maxLength={6}
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value)}
+                placeholder="123456"
+                className="input text-center tracking-widest font-mono"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn btn-primary w-full disabled:opacity-50 transition-all"
+            >
+              {loading ? 'Authenticating...' : 'Sign In'}
+            </button>
+          </form>
+
+          {/* Demo credentials for quick testing */}
+          <div className="mt-8 p-4 bg-cipher-bg/50 rounded-lg border border-gray-700/50">
+            <p className="text-sm font-medium mb-3">Demo Credentials (for testing)</p>
+            <pre className="text-xs font-mono text-cipher-text-muted overflow-x-auto">
+{`Email: admin@ciphercode.app
+Password: admin123
+TOTP Code: 123456`}
+            </pre>
+          </div>
+
+          {/* Security notice */}
+          <div className="mt-6 p-4 bg-cipher-warning/10 rounded-lg border border-yellow-500/30">
+            <p className="text-sm text-yellow-200/80">
+              ⚠️ This is a demo portal. In production, TOTP codes are generated by your authenticator app (Google Authenticator, Authy, etc.) and must be entered for each login.
+            </p>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,362 @@
+// Prisma Schema for CipherCode - Crypto Webapp Store
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum ProjectStatus {
+  Draft
+  Published
+  Hidden
+  SoldOut
+}
+
+model Project {
+  id          Int                  @id @default(autoincrement())
+  title       String
+  slug        String               @unique
+  description String?
+  category    String?
+  tags        String[]
+  price       Float
+  demoUrl     String?
+  screenshots String[]             // Array of S3 paths
+  bundle      String               // S3 path to bundle archive
+  license     String
+  version     String
+  status      ProjectStatus         @default(Published)
+  createdAt   DateTime             @default(now())
+  updatedAt   DateTime             @updatedAt
+  featured    Boolean              @default(false)
+  
+  orders      Order[]
+}
+
+enum OrderType {
+  ScriptOnly
+  WithDeployment
+}
+
+enum PaymentStatus {
+  PendingVerification
+  Approved
+  Rejected
+  Failed
+}
+
+model Order {
+  id          Int                        @id @default(autoincrement())
+  orderCode   String                     @unique
+  alias       String
+  email       String
+  telegramHandle String?
+  projectId   Int                        @relation(fields: [projectId], references: [id])
+  project     Project                    @relation(onDelete: Cascade)
+  type        OrderType                  @default(ScriptOnly)
+  deployment  Deployment?
+  payment     Payment?
+  status      OrderStatus                @default(PendingPayment)
+  notes       String?
+  refundHash  String?
+  createdAt   DateTime                   @default(now())
+  updatedAt   DateTime                   @updatedAt
+  
+  quotes      Quote[]
+}
+
+enum OrderStatus {
+  PendingPayment
+  PaymentSubmitted
+  PaymentApproved
+  PaymentRejected
+  DownloadReady
+  Building
+  Live
+  Failed
+  Cancelled
+  Refunded
+}
+
+model Payment {
+  id          Int                       @id @default(autoincrement())
+  orderId     Int                       @relation(fields: [orderId], references: [id])
+  order       Order                     @relation(onDelete: Cascade)
+  amount      Float
+  coinNetwork String
+  walletAddress String
+  qrCode      String
+  status      PaymentStatus             @default(PendingVerification)
+  note        String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  
+  quotes      Quote[]
+}
+
+model Wallet {
+  id          Int                       @id @default(autoincrement())
+  coin        String
+  network     String
+  address     String
+  ownerId     Int                       // Only Owner role admins
+  owner       AdminUser                 @relation(fields: [ownerId], references: [id])
+  active      Boolean                   @default(true)
+  cooldownEnd DateTime?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  
+  orders      WalletOrder[]              // For audit trail of wallet changes
+}
+
+model Quote {
+  id           Int                      @id @default(autoincrement())
+  orderId      Int                      @relation(fields: [orderId], references: [id])
+  order        Order                    @relation(onDelete: Cascade)
+  expectedAmount Float
+  coinNetwork  String
+  expiryTime   DateTime
+  qrCode       String?
+  createdAt    DateTime                 @default(now())
+  updatedAt    DateTime                 @updatedAt
+  
+  payment      Payment?
+}
+
+model Notification {
+  id          Int                       @id @default(autoincrement())
+  type        NotificationType
+  orderId     Int?
+  paymentId   Int?
+  deploymentId Int?
+  message     String
+  status      NotificationStatus        @default(Pending)
+  sentAt      DateTime?
+  recipient   String                    // Email or Telegram user ID
+  channel     NotificationChannel       @default(email)
+  metadata    Json?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  
+  deliveryLogs DeliveryLog[]
+}
+
+enum NotificationType {
+  NewOrder
+  PaymentSubmitted
+  PaymentApproved
+  PaymentRejected
+  DeploymentStatusChange
+  QuoteExpired
+  AbuseReportReceived
+  WalletChanged
+}
+
+enum NotificationStatus {
+  Pending
+  Sending
+  Sent
+  Failed
+}
+
+enum NotificationChannel {
+  email
+  telegram
+}
+
+model DeliveryLog {
+  id          Int     @id @default(autoincrement())
+  notificationId Int   @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  status      String
+  errorMessage String?
+  attemptedAt DateTime @default(now())
+}
+
+model Deployment {
+  id          Int                       @id @default(autoincrement())
+  orderId     Int                       @relation(fields: [orderId], references: [id])
+  order       Order                     @relation(onDelete: Cascade)
+  liveUrl     String?
+  logs        String[]                  // Array of log messages
+  status      DeploymentStatus          @default(Queued)
+  region      String?
+  subdomain   String?
+  customDomain String?
+  envVars     Json?                     // Encrypted key-value pairs
+  notes       String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  
+  orderStatusChange History[]            @relation("DeploymentOrderStatus")
+  
+  deploymentLogs DeploymentLog[]
+}
+
+enum DeploymentStatus {
+  Queued
+  Building
+  Live
+  Failed
+  Cancelled
+}
+
+model DeploymentLog {
+  id          Int     @id @default(autoincrement())
+  deploymentId Int    @relation(fields: [deploymentId], references: [id], onDelete: Cascade)
+  message     String
+  level       String   // info, warning, error
+  createdAt   DateTime @default(now())
+}
+
+model AdminUser {
+  id          Int      @id @default(autoincrement())
+  email       String   @unique
+  password    String   // bcrypt hash
+  totpSecret  String?
+  totpEnabled Boolean @default(false)
+  role        UserRole @default(Editor)
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  
+  wallets Wallet[]
+  
+  auditLogs AuditLog[]
+}
+
+enum UserRole {
+  Owner
+  Editor
+  Support
+}
+
+model QuoteHistory {
+  id          Int                      @id @default(autoincrement())
+  orderId     Int                      @relation(fields: [orderId], references: [id])
+  amount      Float
+  coinNetwork String
+  rate        Float
+  quoteAmount Float
+  expiryTime  DateTime
+  createdAt   DateTime                  @default(now())
+}
+
+model AbuseReport {
+  id          Int                       @id @default(autoincrement())
+  projectId   Int?
+  orderId     Int?
+  reporterEmail String?
+  description String
+  type        ReportType                 @default(Generic)
+  status      ReportStatus               @default(Pending)
+  resolvedAt DateTime?
+  resolvedBy  Int?
+  notes       String?
+  createdAt   DateTime                  @default(now())
+  updatedAt   DateTime                  @updatedAt
+  
+  project     Project?
+}
+
+enum ReportType {
+  Generic
+  Spam
+  Malicious
+  Illegal
+  Inappropriate
+}
+
+enum ReportStatus {
+  Pending
+  Reviewed
+  Resolved
+}
+
+model AuditLog {
+  id          Int                        @id @default(autoincrement())
+  action      String
+  entity      String?
+  entityId    Int?
+  details     Json?
+  ipAddress   String?                    // Rate limiting only, short-lived
+  userAgent   String?                    // Rate limiting only
+  adminId     Int?                       // Foreign key to AdminUser
+  createdAt   DateTime                   @default(now())
+  
+  admin       AdminUser?                  @relation("AuditLogRelation", fields: [adminId], references: [id])
+}
+
+@relation("AuditLogRelation")
+model AuditLog {
+  id          Int                        @id @default(autoincrement())
+  action      String
+  entity      String?
+  entityId    Int?
+  details     Json?
+  ipAddress   String?
+  userAgent   String?
+  adminId     Int?                       @relation("AuditLogRelation", fields: [adminId], references: [id])
+  createdAt   DateTime                   @default(now())
+  
+  admin       AdminUser
+}
+
+// Settings for site-wide configuration
+model SiteSetting {
+  id          Int      @id @default(autoincrement())
+  key         String   @unique
+  value       String?
+  category    String   // brand, faq, legal, announcement, maintenance
+  createdAt   DateTime @default(now())
+  
+  brand     SiteBrandSetting?
+  faqs      SiteFAQSetting[]
+  announcements SiteAnnouncementSetting[]
+}
+
+enum MaintenanceModeStatus {
+  Off
+  On
+}
+
+model SiteBrandSetting {
+  id          Int                  @id @default(autoincrement())
+  logo        String?
+  favicon     String?
+  title       String               @default("CipherCode")
+  tagline     String?
+  
+  siteSettings SiteSetting[]        @relation("SettingKey", filter: key eq "brand")
+}
+
+model SiteFAQSetting {
+  id          Int      @id @default(autoincrement())
+  question    String   @unique
+  answer      String
+  category    String?
+  
+  siteSettings SiteSetting[] @relation("SettingKey", filter: key eq "faq")
+}
+
+model SiteAnnouncementSetting {
+  id         Int       @id @default(autoincrement())
+  message    String    @unique
+  type       String    // info, warning, error
+  expiresAt  DateTime?
+  
+  siteSettings SiteSetting[] @relation("SettingKey", filter: key eq "announcement")
+}
+
+model WalletOrder {
+  id          Int        @id @default(autoincrement())
+  walletId    Int        @relation(fields: [walletId], references: [id])
+  action      String     // add, update, remove
+  details     Json?
+  adminId     Int
+  admin       AdminUser  @relation(fields: [adminId], references: [id])
+  createdAt   DateTime   @default(now())
+}
